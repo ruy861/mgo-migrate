@@ -2,13 +2,11 @@
 package migrate
 
 import (
-	"context"
+	"errors"
+	"gopkg.in/mgo.v2"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type collectionSpecification struct {
@@ -33,12 +31,12 @@ const AllAvailable = -1
 // This document consists migration version, migration description and timestamp.
 // Current database version determined as version in latest added document (biggest "_id") from collection mentioned above.
 type Migrate struct {
-	db                   *mongo.Database
+	db                   *mgo.Database
 	migrations           []Migration
 	migrationsCollection string
 }
 
-func NewMigrate(db *mongo.Database, migrations ...Migration) *Migrate {
+func NewMigrate(db *mgo.Database, migrations ...Migration) *Migrate {
 	internalMigrations := make([]Migration, len(migrations))
 	copy(internalMigrations, migrations)
 	return &Migrate{
@@ -78,7 +76,7 @@ func (m *Migrate) createCollectionIfNotExist(name string) error {
 	}
 
 	command := bson.D{bson.E{Key: "create", Value: name}}
-	err = m.db.RunCommand(nil, command).Err()
+	err = m.db.Run(command, nil)
 	if err != nil {
 		return err
 	}
@@ -87,40 +85,21 @@ func (m *Migrate) createCollectionIfNotExist(name string) error {
 }
 
 func (m *Migrate) getCollections() (collections []collectionSpecification, err error) {
-	filter := bson.D{bson.E{Key: "type", Value: "collection"}}
-	options := options.ListCollections().SetNameOnly(true)
-
-	cursor, err := m.db.ListCollections(context.Background(), filter, options)
+	names, err := m.db.CollectionNames()
 	if err != nil {
 		return nil, err
 	}
 
-	if cursor != nil {
-		defer func(cursor *mongo.Cursor) {
-			curErr := cursor.Close(context.TODO())
-			if curErr != nil {
-				if err != nil {
-					err = errors.Wrapf(curErr, "migrate: get collection failed: %s", err.Error())
-				} else {
-					err = curErr
-				}
-			}
-		}(cursor)
+	if len(names) == 0 {
+		err = errors.New("g")
 	}
 
-	for cursor.Next(context.TODO()) {
-		var collection collectionSpecification
-
-		err := cursor.Decode(&collection)
-		if err != nil {
-			return nil, err
+	for _, collection := range names {
+		collection := collectionSpecification{
+			Name: collection,
 		}
 
 		collections = append(collections, collection)
-	}
-
-	if err := cursor.Err(); err != nil {
-		return nil, err
 	}
 
 	return
@@ -132,22 +111,16 @@ func (m *Migrate) Version() (uint64, string, error) {
 		return 0, "", err
 	}
 
-	filter := bson.D{{}}
-	sort := bson.D{bson.E{Key: "_id", Value: -1}}
-	options := options.FindOne().SetSort(sort)
-
+	filter := bson.M{}
 	// find record with greatest id (assuming it`s latest also)
-	result := m.db.Collection(m.migrationsCollection).FindOne(context.TODO(), filter, options)
-	err := result.Err()
+	var rec versionRecord
+
+	err := m.db.C(m.migrationsCollection).Find(filter).Sort("-_id").One(&rec)
+
 	switch {
-	case err == mongo.ErrNoDocuments:
+	case rec.Version == 0:
 		return 0, "", nil
 	case err != nil:
-		return 0, "", err
-	}
-
-	var rec versionRecord
-	if err := result.Decode(&rec); err != nil {
 		return 0, "", err
 	}
 
@@ -162,7 +135,7 @@ func (m *Migrate) SetVersion(version uint64, description string) error {
 		Description: description,
 	}
 
-	_, err := m.db.Collection(m.migrationsCollection).InsertOne(context.TODO(), rec)
+	err := m.db.C(m.migrationsCollection).Insert(rec)
 	if err != nil {
 		return err
 	}

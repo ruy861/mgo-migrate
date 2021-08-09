@@ -24,7 +24,7 @@ Table of Contents
 
 ## Installation
 ```bash
-go get -v -u github.com/xakep666/mongo-migrate
+go get -v -u 192.168.178.24:3030/daniel/mgo-migrate
 ```
 
 ## Usage
@@ -39,14 +39,16 @@ File name should be like `<version>_<description>.go`.
 package migrations
 
 import (
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	migrate "github.com/xakep666/mongo-migrate"
+  "go.mongodb.org/mongo-driver/bson"
+  "go.mongodb.org/mongo-driver/mongo"
+  "go.mongodb.org/mongo-driver/mongo/options"
+  "gopkg.in/mgo.v2"
+
+  migrate "github.com/xakep666/mongo-migrate"
 )
 
 func init() {
-	migrate.Register(func(db *mongo.Database) error {
+	migrate.Register(func(db *mgo.Database) error {
 		opt := options.Index().SetName("my-index")
 		keys := bson.D{{"my-key", 1}}
 		model := mongo.IndexModel{Keys: keys, Options: opt}

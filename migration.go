@@ -1,13 +1,12 @@
 package migrate
 
 import (
+	"gopkg.in/mgo.v2"
 	"sort"
-
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // MigrationFunc used to define actions to be performed for a migration.
-type MigrationFunc func(db *mongo.Database) error
+type MigrationFunc func(db *mgo.Database) error
 
 // Migration represents single database migration.
 // Migration contains:
